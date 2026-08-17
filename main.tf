@@ -324,14 +324,15 @@ resource "aws_s3_bucket" "origin" {
   bucket        = module.origin_label.id
   tags          = module.origin_label.tags
   force_destroy = var.origin_force_destroy
+}
 
-  dynamic "logging" {
-    for_each = local.s3_access_logging_enabled ? [1] : []
-    content {
-      target_bucket = local.s3_access_log_bucket_name
-      target_prefix = coalesce(var.s3_access_log_prefix, "logs/${local.origin_id}/")
-    }
-  }
+resource "aws_s3_bucket_logging" "origin" {
+  count = local.create_s3_origin_bucket && local.s3_access_logging_enabled ? 1 : 0
+
+  bucket = one(aws_s3_bucket.origin[*].id)
+
+  target_bucket = local.s3_access_log_bucket_name
+  target_prefix = coalesce(var.s3_access_log_prefix, "logs/${local.origin_id}/")
 }
 
 resource "aws_s3_bucket_versioning" "origin" {
