@@ -337,7 +337,7 @@ resource "aws_s3_bucket" "origin" {
 resource "aws_s3_bucket_versioning" "origin" {
   count = local.create_s3_origin_bucket ? 1 : 0
 
-  bucket = one(aws_s3_bucket.origin).id
+  bucket = one(aws_s3_bucket.origin[*].id)
 
   versioning_configuration {
     status = var.bucket_versioning
@@ -347,7 +347,7 @@ resource "aws_s3_bucket_versioning" "origin" {
 resource "aws_s3_bucket_server_side_encryption_configuration" "origin" {
   count = var.encryption_enabled && local.create_s3_origin_bucket ? 1 : 0
 
-  bucket = one(aws_s3_bucket.origin).id
+  bucket = one(aws_s3_bucket.origin[*].id)
 
   rule {
     apply_server_side_encryption_by_default {
@@ -359,7 +359,7 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "origin" {
 resource "aws_s3_bucket_cors_configuration" "origin" {
   count = local.create_s3_origin_bucket && length(local.cors_origins) > 0 ? 1 : 0
 
-  bucket = one(aws_s3_bucket.origin).id
+  bucket = one(aws_s3_bucket.origin[*].id)
 
   dynamic "cors_rule" {
     for_each = local.cors_origins
@@ -378,7 +378,7 @@ resource "aws_s3_bucket_cors_configuration" "origin" {
 resource "aws_s3_bucket_website_configuration" "origin" {
   count = local.create_s3_origin_bucket && var.website_enabled ? 1 : 0
 
-  bucket = one(aws_s3_bucket.origin).id
+  bucket = one(aws_s3_bucket.origin[*].id)
 
   dynamic "index_document" {
     for_each = var.redirect_all_requests_to == "" ? [1] : []
@@ -425,7 +425,7 @@ resource "aws_s3_bucket_acl" "origin" {
   depends_on = [aws_s3_bucket_ownership_controls.origin]
   count      = local.create_s3_origin_bucket && var.s3_object_ownership != "BucketOwnerEnforced" ? 1 : 0
 
-  bucket = one(aws_s3_bucket.origin).id
+  bucket = one(aws_s3_bucket.origin[*].id)
   acl    = "private"
 }
 
