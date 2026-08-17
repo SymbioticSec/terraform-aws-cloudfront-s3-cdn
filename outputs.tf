@@ -79,8 +79,20 @@ output "s3_bucket_policy" {
 }
 
 output "logs" {
-  value       = module.logs
-  description = "Log bucket resource"
+  # Expose the log bucket's specific, non-deprecated attributes rather than the
+  # whole `module.logs` object. Referencing the entire module surfaces the AWS
+  # provider's computed-but-deprecated legacy `aws_s3_bucket` attributes (e.g.
+  # cors_rule, grant, website_endpoint), which triggers spurious "Deprecated
+  # value used" warnings for consumers on AWS provider >= 6.x.
+  value = {
+    bucket_id                          = module.logs.bucket_id
+    bucket_arn                         = module.logs.bucket_arn
+    bucket_domain_name                 = module.logs.bucket_domain_name
+    prefix                             = module.logs.prefix
+    bucket_notifications_sqs_queue_arn = module.logs.bucket_notifications_sqs_queue_arn
+    enabled                            = module.logs.enabled
+  }
+  description = "Log bucket attributes (id, ARN, domain name, prefix, notifications SQS queue ARN, enabled)"
 }
 
 output "aliases" {
