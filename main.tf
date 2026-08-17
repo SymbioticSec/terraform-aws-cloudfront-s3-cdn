@@ -24,12 +24,28 @@ locals {
     arn                         = ""
     bucket                      = ""
     website_domain              = ""
-    website_endpoint            = ""
     bucket_regional_domain_name = ""
   }
+
+  # For new buckets, we need to compute website_domain from website_configuration
+  origin_bucket_new = local.create_s3_origin_bucket ? {
+    arn                         = aws_s3_bucket.origin[0].arn
+    bucket                      = aws_s3_bucket.origin[0].id
+    website_domain              = var.website_enabled && length(aws_s3_bucket_website_configuration.origin) > 0 ? aws_s3_bucket_website_configuration.origin[0].website_domain : ""
+    bucket_regional_domain_name = aws_s3_bucket.origin[0].bucket_regional_domain_name
+  } : null
+
+  # For existing buckets, compute the website domain from bucket name and region
+  origin_bucket_existing = local.enabled && var.origin_bucket != null ? {
+    arn                         = data.aws_s3_bucket.origin[0].arn
+    bucket                      = data.aws_s3_bucket.origin[0].id
+    website_domain              = var.website_enabled ? "${data.aws_s3_bucket.origin[0].id}.s3-website-${data.aws_region.current[0].name}.amazonaws.com" : ""
+    bucket_regional_domain_name = data.aws_s3_bucket.origin[0].bucket_regional_domain_name
+  } : null
+
   origin_bucket_options = {
-    new      = local.create_s3_origin_bucket ? aws_s3_bucket.origin[0] : null
-    existing = local.enabled && var.origin_bucket != null ? data.aws_s3_bucket.origin[0] : null
+    new      = local.origin_bucket_new
+    existing = local.origin_bucket_existing
     disabled = local.origin_bucket_placeholder
   }
   # Workaround for requirement that tertiary expression has to have exactly matching objects in both result values
@@ -58,7 +74,7 @@ locals {
   cf_access = local.cf_access_options[local.create_cloudfront_origin_access_identity || local.create_cloudfront_origin_access_control ? "new" : "existing"]
 
   bucket             = local.origin_bucket.bucket
-  bucket_domain_name = var.website_enabled ? local.origin_bucket.website_endpoint : local.origin_bucket.bucket_regional_domain_name
+  bucket_domain_name = var.website_enabled ? local.origin_bucket.website_domain : local.origin_bucket.bucket_regional_domain_name
 
   override_origin_bucket_policy = local.enabled && var.override_origin_bucket_policy
 
@@ -316,17 +332,6 @@ resource "aws_s3_bucket" "origin" {
       target_prefix = coalesce(var.s3_access_log_prefix, "logs/${local.origin_id}/")
     }
   }
-
-  dynamic "website" {
-    for_each = var.website_enabled ? local.website_config[var.redirect_all_requests_to == "" ? "default" : "redirect_all"] : []
-    # The lookup is needed to safely access optional website config keys, since locals defines 2 distinct flavours of website config
-    content {
-      error_document           = lookup(website.value, "error_document", null)
-      index_document           = lookup(website.value, "index_document", null)
-      redirect_all_requests_to = lookup(website.value, "redirect_all_requests_to", null)
-      routing_rules            = lookup(website.value, "routing_rules", null)
-    }
-  }
 }
 
 resource "aws_s3_bucket_versioning" "origin" {
@@ -368,6 +373,52 @@ resource "aws_s3_bucket_cors_configuration" "origin" {
   }
 
   depends_on = [time_sleep.wait_for_aws_s3_bucket_settings]
+}
+
+resource "aws_s3_bucket_website_configuration" "origin" {
+  count = local.create_s3_origin_bucket && var.website_enabled ? 1 : 0
+
+  bucket = one(aws_s3_bucket.origin).id
+
+  dynamic "index_document" {
+    for_each = var.redirect_all_requests_to == "" ? [1] : []
+    content {
+      suffix = var.index_document
+    }
+  }
+
+  dynamic "error_document" {
+    for_each = var.redirect_all_requests_to == "" && var.error_document != "" ? [1] : []
+    content {
+      key = var.error_document
+    }
+  }
+
+  dynamic "redirect_all_requests_to" {
+    for_each = var.redirect_all_requests_to != "" ? [1] : []
+    content {
+      host_name = var.redirect_all_requests_to
+    }
+  }
+
+  dynamic "routing_rule" {
+    for_each = var.routing_rules != "" ? jsondecode(var.routing_rules) : []
+    content {
+      condition {
+        key_prefix_equals               = try(routing_rule.value.condition.key_prefix_equals, null)
+        http_error_code_returned_equals = try(routing_rule.value.condition.http_error_code_returned_equals, null)
+      }
+      redirect {
+        host_name               = try(routing_rule.value.redirect.host_name, null)
+        http_redirect_code      = try(routing_rule.value.redirect.http_redirect_code, null)
+        protocol                = try(routing_rule.value.redirect.protocol, null)
+        replace_key_prefix_with = try(routing_rule.value.redirect.replace_key_prefix_with, null)
+        replace_key_with        = try(routing_rule.value.redirect.replace_key_with, null)
+      }
+    }
+  }
+
+  depends_on = [aws_s3_bucket.origin]
 }
 
 resource "aws_s3_bucket_acl" "origin" {
